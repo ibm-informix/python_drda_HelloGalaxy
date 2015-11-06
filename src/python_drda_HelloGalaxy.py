@@ -26,6 +26,7 @@
 
 import ibm_db
 import json 
+import logging
 import os
 from flask import Flask, render_template
 
@@ -60,27 +61,35 @@ def parseVCAP():
     global database
     global url
     
-    altadb = json.loads(os.environ['VCAP_SERVICES'])['altadb-dev'][0]
-    credentials = altadb['credentials']
+    tsdb = json.loads(os.environ['VCAP_SERVICES'])['timeseriesdatabase'][0]
+    credentials = tsdb['credentials']
     database = credentials['db']
     host = credentials['host']
     username = credentials['username']
     password = credentials['password']  
     ssl = False
     if ssl == True:
-        port = credentials['ssl_drda_port']
+        port = credentials['drda_port_ssl']
     else:
         port = credentials['drda_port']
          
-    url = "HOSTNAME=" + host + ";PORT=" + port + ";DATABASE="+ database + ";PROTOCOL=TCPIP;UID=" + username +";PWD="+ password + ";"
+    url = "HOSTNAME=" + host + ";PORT=" + str(port) + ";DATABASE="+ database + ";PROTOCOL=TCPIP;UID=" + username +";PWD="+ password + ";"
+    if ssl == True:
+        url += "Security=ssl;"
  
     
 def doEverything():    
     commands = []
     
     # connect to database
-    conn = ibm_db.connect(url, '', '')
-    commands.append("Connected to " + url)
+    commands.append("Connecting to " + url)
+    try: 
+        conn = ibm_db.connect(url, '', '')
+    except: 
+         commands.append("Could not establish connection to database: " + ibm_db.conn_errormsg())
+         return commands
+    commands.append("Connection successful")
+
     
     # set up variables and data
     tableName = "pythonDRDAGalaxy"
@@ -325,8 +334,15 @@ def displayPage():
 
 @app.route("/databasetest")
 def printCommands():
-    parseVCAP()
-    commands = doEverything()
+    commands = []
+    try:
+        parseVCAP()
+        commands = doEverything()
+    except Exception as e:
+        logging.exception(e) 
+        commands.append("EXCEPTION: " + str(e))
+        commands.append("See log for details")
+
     return render_template('tests.html', commands=commands)
 
 if (__name__ == "__main__"):
